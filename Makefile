@@ -12,7 +12,7 @@ DOCKER_IMAGE := containerd-dev$(if $(GIT_BRANCH),:$(GIT_BRANCH))
 DOCKER_RUN := docker run --rm -i $(DOCKER_FLAGS) "$(DOCKER_IMAGE)"
 
 
-all: client daemon
+all: client daemon shim
 
 bin:
 	mkdir -p bin/
@@ -25,6 +25,9 @@ client: bin
 
 daemon: bin
 	cd containerd && go build -tags "$(BUILDTAGS)" -o ../bin/containerd
+
+shim: bin
+	cd containerd-shim && go build -tags "$(BUILDTAGS)" -o ../bin/containerd-shim
 
 dbuild:
 	@docker build --rm --force-rm -t "$(DOCKER_IMAGE)" .
