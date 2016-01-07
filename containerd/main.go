@@ -4,6 +4,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"runtime"
 	"sync"
 	"syscall"
@@ -181,6 +182,9 @@ func processMetrics() {
 }
 
 func daemon(id, address, stateDir string, concurrency int, oom bool) error {
+	// setup a standard reaper so that we don't leave any zombies if we are still alive
+	// this is just good practice because we are spawning new processes
+	go reapProcesses()
 	tasks := make(chan *supervisor.StartTask, concurrency*100)
 	sv, err := supervisor.New(id, stateDir, tasks, oom)
 	if err != nil {
@@ -206,6 +210,19 @@ func daemon(id, address, stateDir string, concurrency int, oom bool) error {
 	types.RegisterAPIServer(s, server.NewServer(sv))
 	logrus.Debugf("GRPC API listen on %s", address)
 	return s.Serve(l)
+}
+
+func reapProcesses() {
+	s := make(chan os.Signal, 2048)
+	signal.Notify(s, syscall.SIGCHLD)
+	if err := util.SetSubreaper(1); err != nil {
+		logrus.WithField("error", err).Error("containerd: set subpreaper")
+	}
+	for range s {
+		if _, err := util.Reap(); err != nil {
+			logrus.WithField("error", err).Error("containerd: reap child processes")
+		}
+	}
 }
 
 // getDefaultID returns the hostname for the instance host

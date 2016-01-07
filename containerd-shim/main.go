@@ -10,17 +10,11 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/containerd/util"
-	"github.com/opencontainers/runc/libcontainer/utils"
 )
 
 const (
 	bufferSize = 2048
 )
-
-type exit struct {
-	pid    int
-	status int
-}
 
 type stdio struct {
 	stdin  *os.File
@@ -85,17 +79,17 @@ func main() {
 		logrus.WithField("signal", s).Debug("shim: received signal")
 		switch s {
 		case syscall.SIGCHLD:
-			exits, err := reap()
+			exits, err := util.Reap()
 			if err != nil {
 				logrus.WithField("error", err).Error("shim: reaping child processes")
 			}
 			for _, e := range exits {
 				// check to see if runc is one of the processes that has exited
-				if e.pid == runcPid {
+				if e.Pid == runcPid {
 					exitShim = true
-					logrus.WithFields(logrus.Fields{"pid": e.pid, "status": e.status}).Info("shim: runc exited")
-					if err := writeInt(filepath.Join(os.Args[1], "exitStatus"), e.status); err != nil {
-						logrus.WithFields(logrus.Fields{"error": err, "status": e.status}).Error("shim: write exit status")
+					logrus.WithFields(logrus.Fields{"pid": e.Pid, "status": e.Status}).Info("shim: runc exited")
+					if err := writeInt(filepath.Join(os.Args[1], "exitStatus"), e.Status); err != nil {
+						logrus.WithFields(logrus.Fields{"error": err, "status": e.Status}).Error("shim: write exit status")
 					}
 				}
 			}
@@ -153,29 +147,4 @@ func writeInt(path string, i int) error {
 	defer f.Close()
 	_, err = fmt.Fprintf(f, "%d", i)
 	return err
-}
-
-// reap performs a wait4 on all child processes of the shim to collect their pid
-// and exit status
-func reap() (exits []exit, err error) {
-	var (
-		ws  syscall.WaitStatus
-		rus syscall.Rusage
-	)
-	for {
-		pid, err := syscall.Wait4(-1, &ws, syscall.WNOHANG, &rus)
-		if err != nil {
-			if err == syscall.ECHILD {
-				return exits, nil
-			}
-			return exits, err
-		}
-		if pid <= 0 {
-			return exits, nil
-		}
-		exits = append(exits, exit{
-			pid:    pid,
-			status: utils.ExitStatus(ws),
-		})
-	}
 }
