@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"syscall"
 	"text/tabwriter"
@@ -96,37 +96,54 @@ var StartCommand = cli.Command{
 		if id == "" {
 			fatal("container id cannot be empty", 1)
 		}
-
-		// start new shim code
-		dir := filepath.Join(path, "shim")
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			fatal(err.Error(), 1)
-		}
-		if err := attachStdio(dir); err != nil {
-			fatal(err.Error(), 1)
-		}
-
-		lockFile, err := os.Create(filepath.Join(dir, "waitlock"))
+		c := getClient(context)
+		events, err := c.Events(netcontext.Background(), &types.EventsRequest{})
 		if err != nil {
 			fatal(err.Error(), 1)
 		}
-		err = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		r := &types.CreateContainerRequest{
+			Id:         id,
+			BundlePath: path,
+			Checkpoint: context.String("checkpoint"),
+		}
+		if context.Bool("attach") {
+			mkterm, err := readTermSetting(path)
+			if err != nil {
+				fatal(err.Error(), 1)
+			}
+			if mkterm {
+				if err := attachTty(&r.Console); err != nil {
+					fatal(err.Error(), 1)
+				}
+			} else {
+				if err := attachStdio(&r.Stdin, &r.Stdout, &r.Stderr); err != nil {
+					fatal(err.Error(), 1)
+				}
+			}
+		}
+		resp, err := c.CreateContainer(netcontext.Background(), r)
 		if err != nil {
 			fatal(err.Error(), 1)
 		}
-		cmd := exec.Command("containerd-shim", dir, id)
-		cmd.Dir = path
-		cmd.ExtraFiles = []*os.File{
-			lockFile,
-		}
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			Setpgid: true,
-		}
-		// cmd.Stdout = os.Stdout
-		// cmd.Stderr = os.Stderr
-		// get shim logging?
-		if err := cmd.Start(); err != nil {
-			fatal(err.Error(), 1)
+		if context.Bool("attach") {
+			go func() {
+				io.Copy(stdin, os.Stdin)
+				if state != nil {
+					term.RestoreTerminal(os.Stdin.Fd(), state)
+				}
+				stdin.Close()
+			}()
+			for {
+				e, err := events.Recv()
+				if err != nil {
+					fatal(err.Error(), 1)
+				}
+				if e.Id == id && e.Type == "exit" {
+					os.Exit(int(e.Status))
+				}
+			}
+		} else {
+			fmt.Println(resp.Pid)
 		}
 	},
 }
@@ -170,7 +187,11 @@ func attachTty(consolePath *string) error {
 	return nil
 }
 
-func attachStdio(dir string) error {
+func attachStdio(stdins, stdout, stderr *string) error {
+	dir, err := ioutil.TempDir("", "ctr-")
+	if err != nil {
+		return err
+	}
 	for _, p := range []struct {
 		path string
 		flag int
@@ -180,6 +201,7 @@ func attachStdio(dir string) error {
 			path: filepath.Join(dir, "stdin"),
 			flag: syscall.O_RDWR,
 			done: func(f *os.File) {
+				*stdins = filepath.Join(dir, "stdin")
 				stdin = f
 			},
 		},
@@ -187,6 +209,7 @@ func attachStdio(dir string) error {
 			path: filepath.Join(dir, "stdout"),
 			flag: syscall.O_RDWR,
 			done: func(f *os.File) {
+				*stdout = filepath.Join(dir, "stdout")
 				go io.Copy(os.Stdout, f)
 			},
 		},
@@ -194,11 +217,12 @@ func attachStdio(dir string) error {
 			path: filepath.Join(dir, "stderr"),
 			flag: syscall.O_RDWR,
 			done: func(f *os.File) {
+				*stderr = filepath.Join(dir, "stderr")
 				go io.Copy(os.Stderr, f)
 			},
 		},
 	} {
-		if err := syscall.Mkfifo(p.path, 0755); err != nil && !os.IsExist(err) {
+		if err := syscall.Mkfifo(p.path, 0755); err != nil {
 			return fmt.Errorf("mkfifo: %s %v", p.path, err)
 		}
 		f, err := os.OpenFile(p.path, p.flag, 0)
@@ -297,9 +321,9 @@ var ExecCommand = cli.Command{
 					fatal(err.Error(), 1)
 				}
 			} else {
-				//if err := attachStdio(&p.Stdin, &p.Stdout, &p.Stderr); err != nil {
-				//	fatal(err.Error(), 1)
-				//}
+				if err := attachStdio(&p.Stdin, &p.Stdout, &p.Stderr); err != nil {
+					fatal(err.Error(), 1)
+				}
 			}
 		}
 		r, err := c.AddProcess(netcontext.Background(), p)
