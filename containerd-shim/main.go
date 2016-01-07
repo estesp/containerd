@@ -88,7 +88,7 @@ func main() {
 				if e.pid == runcPid {
 					exitShim = true
 					logrus.WithFields(logrus.Fields{"pid": e.pid, "status": e.status}).Info("shim: runc exited")
-					if err := writeInt(filepath.Join(os.Args[1], "exitStatus")); err != nil {
+					if err := writeInt(filepath.Join(os.Args[1], "exitStatus"), e.status); err != nil {
 						logrus.WithFields(logrus.Fields{"error": err, "status": e.status}).Error("shim: write exit status")
 					}
 				}

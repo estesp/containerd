@@ -66,6 +66,18 @@ func (p *process) Signal(s os.Signal) error {
 	return errNotImplemented
 }
 
+func (p *process) Stdin() *os.File {
+	return p.stdin
+}
+
+func (p *process) Stdout() *os.File {
+	return p.stdout
+}
+
+func (p *process) Stderr() *os.File {
+	return p.stderr
+}
+
 // Close closes any open files and/or resouces on the process
 func (p *process) Close() error {
 	err := p.stdin.Close()

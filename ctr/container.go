@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
@@ -40,6 +39,7 @@ var ContainersCommand = cli.Command{
 	Name:  "containers",
 	Usage: "interact with running containers",
 	Subcommands: []cli.Command{
+		AttachCommand,
 		ExecCommand,
 		KillCommand,
 		ListCommand,
@@ -69,6 +69,52 @@ func listContainers(context *cli.Context) {
 	if err := w.Flush(); err != nil {
 		fatal(err.Error(), 1)
 	}
+}
+
+var AttachCommand = cli.Command{
+	Name:  "attach",
+	Usage: "attach to a running container",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "state-dir",
+			Value: "/run/containerd",
+			Usage: "runtime state directory",
+		},
+	},
+	Action: func(context *cli.Context) {
+		id := context.Args().First()
+		if id == "" {
+			fatal("container id cannot be empty", 1)
+		}
+		c := getClient(context)
+		events, err := c.Events(netcontext.Background(), &types.EventsRequest{})
+		if err != nil {
+			fatal(err.Error(), 1)
+		}
+		if err := attachStdio(
+			filepath.Join(context.String("state-dir"), id, "proc", "stdin"),
+			filepath.Join(context.String("state-dir"), id, "proc", "stdout"),
+			filepath.Join(context.String("state-dir"), id, "proc", "stderr"),
+		); err != nil {
+			fatal(err.Error(), 1)
+		}
+		go func() {
+			io.Copy(stdin, os.Stdin)
+			if state != nil {
+				term.RestoreTerminal(os.Stdin.Fd(), state)
+			}
+			stdin.Close()
+		}()
+		for {
+			e, err := events.Recv()
+			if err != nil {
+				fatal(err.Error(), 1)
+			}
+			if e.Id == id && e.Type == "exit" {
+				os.Exit(int(e.Status))
+			}
+		}
+	},
 }
 
 var StartCommand = cli.Command{
@@ -106,24 +152,26 @@ var StartCommand = cli.Command{
 			BundlePath: path,
 			Checkpoint: context.String("checkpoint"),
 		}
+		resp, err := c.CreateContainer(netcontext.Background(), r)
+		if err != nil {
+			fatal(err.Error(), 1)
+		}
 		if context.Bool("attach") {
 			mkterm, err := readTermSetting(path)
 			if err != nil {
 				fatal(err.Error(), 1)
 			}
 			if mkterm {
-				if err := attachTty(&r.Console); err != nil {
-					fatal(err.Error(), 1)
-				}
+				/*
+					if err := attachTty(&r.Console); err != nil {
+						fatal(err.Error(), 1)
+					}
+				*/
 			} else {
-				if err := attachStdio(&r.Stdin, &r.Stdout, &r.Stderr); err != nil {
+				if err := attachStdio(resp.Stdin, resp.Stdout, resp.Stderr); err != nil {
 					fatal(err.Error(), 1)
 				}
 			}
-		}
-		resp, err := c.CreateContainer(netcontext.Background(), r)
-		if err != nil {
-			fatal(err.Error(), 1)
 		}
 		if context.Bool("attach") {
 			go func() {
@@ -142,8 +190,6 @@ var StartCommand = cli.Command{
 					os.Exit(int(e.Status))
 				}
 			}
-		} else {
-			fmt.Println(resp.Pid)
 		}
 	},
 }
@@ -187,50 +233,22 @@ func attachTty(consolePath *string) error {
 	return nil
 }
 
-func attachStdio(stdins, stdout, stderr *string) error {
-	dir, err := ioutil.TempDir("", "ctr-")
+func attachStdio(stdins, stdout, stderr string) error {
+	stdinf, err := os.Open(stdins)
 	if err != nil {
 		return err
 	}
-	for _, p := range []struct {
-		path string
-		flag int
-		done func(f *os.File)
-	}{
-		{
-			path: filepath.Join(dir, "stdin"),
-			flag: syscall.O_RDWR,
-			done: func(f *os.File) {
-				*stdins = filepath.Join(dir, "stdin")
-				stdin = f
-			},
-		},
-		{
-			path: filepath.Join(dir, "stdout"),
-			flag: syscall.O_RDWR,
-			done: func(f *os.File) {
-				*stdout = filepath.Join(dir, "stdout")
-				go io.Copy(os.Stdout, f)
-			},
-		},
-		{
-			path: filepath.Join(dir, "stderr"),
-			flag: syscall.O_RDWR,
-			done: func(f *os.File) {
-				*stderr = filepath.Join(dir, "stderr")
-				go io.Copy(os.Stderr, f)
-			},
-		},
-	} {
-		if err := syscall.Mkfifo(p.path, 0755); err != nil {
-			return fmt.Errorf("mkfifo: %s %v", p.path, err)
-		}
-		f, err := os.OpenFile(p.path, p.flag, 0)
-		if err != nil {
-			return fmt.Errorf("open: %s %v", p.path, err)
-		}
-		p.done(f)
+	stdin = stdinf
+	stdoutf, err := os.OpenFile(stdout, syscall.O_RDWR, 0)
+	if err != nil {
+		return err
 	}
+	go io.Copy(os.Stdout, stdoutf)
+	stderrf, err := os.OpenFile(stderr, syscall.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	go io.Copy(os.Stderr, stderrf)
 	return nil
 }
 
@@ -315,17 +333,19 @@ var ExecCommand = cli.Command{
 		if err != nil {
 			fatal(err.Error(), 1)
 		}
-		if context.Bool("attach") {
-			if p.Terminal {
-				if err := attachTty(&p.Console); err != nil {
-					fatal(err.Error(), 1)
-				}
-			} else {
-				if err := attachStdio(&p.Stdin, &p.Stdout, &p.Stderr); err != nil {
-					fatal(err.Error(), 1)
+		/*
+			if context.Bool("attach") {
+				if p.Terminal {
+					if err := attachTty(&p.Console); err != nil {
+						fatal(err.Error(), 1)
+					}
+				} else {
+					if err := attachStdio(&p.Stdin, &p.Stdout, &p.Stderr); err != nil {
+						fatal(err.Error(), 1)
+					}
 				}
 			}
-		}
+		*/
 		r, err := c.AddProcess(netcontext.Background(), p)
 		if err != nil {
 			fatal(err.Error(), 1)

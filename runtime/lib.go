@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,17 +11,43 @@ import (
 const (
 	LockFile       = "waitlock"
 	ExitStatusFile = "exitStatus"
+	StateFile      = "state.json"
 )
 
+type state struct {
+	Bundle string `json:"bundle"`
+}
+
 // New returns a new container
-func New(id, bundle string) (Container, error) {
-	return &container{
+func New(root, id, bundle string) (Container, error) {
+	c := &container{
+		root:   root,
 		id:     id,
 		bundle: bundle,
-	}, nil
+	}
+	if err := os.Mkdir(filepath.Join(root, id), 0755); err != nil {
+		return nil, err
+	}
+	f, err := os.Create(filepath.Join(root, id, StateFile))
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if err := json.NewEncoder(f).Encode(state{
+		Bundle: bundle,
+	}); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func Load(root, id string) (Container, error) {
+	return nil, nil
 }
 
 type container struct {
+	// path to store runtime state information
+	root   string
 	id     string
 	bundle string
 }
@@ -34,8 +61,8 @@ func (c *container) Path() string {
 }
 
 func (c *container) Start() (Process, error) {
-	processRoot := filepath.Join(c.bundle, "proc")
-	if err := os.Mkdir(processRoot, 0755); err != nil {
+	processRoot := filepath.Join(c.root, c.id, "proc")
+	if err := os.MkdirAll(processRoot, 0755); err != nil {
 		return nil, err
 	}
 	lock, err := c.createLock(processRoot)

@@ -33,10 +33,6 @@ func (s *apiServer) CreateContainer(ctx context.Context, c *types.CreateContaine
 	e := supervisor.NewEvent(supervisor.StartContainerEventType)
 	e.ID = c.Id
 	e.BundlePath = c.BundlePath
-	e.Stdout = c.Stdout
-	e.Stderr = c.Stderr
-	e.Stdin = c.Stdin
-	e.Console = c.Console
 	e.StartResponse = make(chan supervisor.StartResponse, 1)
 	if c.Checkpoint != "" {
 		e.Checkpoint = &runtime.Checkpoint{
@@ -49,7 +45,9 @@ func (s *apiServer) CreateContainer(ctx context.Context, c *types.CreateContaine
 	}
 	sr := <-e.StartResponse
 	return &types.CreateContainerResponse{
-		Pid: uint32(sr.Pid),
+		Stdin:  sr.Stdin,
+		Stdout: sr.Stdout,
+		Stderr: sr.Stderr,
 	}, nil
 }
 

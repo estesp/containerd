@@ -37,7 +37,11 @@ type worker struct {
 func (w *worker) Start() {
 	defer w.wg.Done()
 	for t := range w.s.tasks {
-		started := time.Now()
+		var (
+			err     error
+			process runtime.Process
+			started = time.Now()
+		)
 		if t.Checkpoint != "" {
 			/*
 				if err := t.Container.Restore(t.Checkpoint); err != nil {
@@ -49,7 +53,8 @@ func (w *worker) Start() {
 				}
 			*/
 		} else {
-			if _, err := t.Container.Start(); err != nil {
+			process, err = t.Container.Start()
+			if err != nil {
 				evt := NewEvent(DeleteEventType)
 				evt.ID = t.Container.ID()
 				w.s.SendEvent(evt)
@@ -58,23 +63,21 @@ func (w *worker) Start() {
 			}
 		}
 		/*
-			pid, err := t.Container.Pid()
-			if err != nil {
-				logrus.WithField("error", err).Error("containerd: get container main pid")
-			}
-			if w.s.notifier != nil {
-				n, err := t.Container.OOM()
-				if err != nil {
-					logrus.WithField("error", err).Error("containerd: notify OOM events")
-				} else {
-					w.s.notifier.Add(n, t.Container.ID())
-				}
-			}
+		   if w.s.notifier != nil {
+		       n, err := t.Container.OOM()
+		       if err != nil {
+		           logrus.WithField("error", err).Error("containerd: notify OOM events")
+		       } else {
+		           w.s.notifier.Add(n, t.Container.ID())
+		       }
+		   }
 		*/
 		ContainerStartTimer.UpdateSince(started)
 		t.Err <- nil
 		t.StartResponse <- StartResponse{
-			Pid: -1,
+			Stdin:  process.Stdin().Name(),
+			Stdout: process.Stdout().Name(),
+			Stderr: process.Stderr().Name(),
 		}
 	}
 }

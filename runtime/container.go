@@ -8,6 +8,9 @@ import (
 
 type Process interface {
 	io.Closer
+	Stdin() *os.File
+	Stdout() *os.File
+	Stderr() *os.File
 	// Pid() (int, error)
 	// Spec() specs.Process
 	Signal(os.Signal) error

@@ -12,7 +12,7 @@ type StartEvent struct {
 
 func (h *StartEvent) Handle(e *Event) error {
 	start := time.Now()
-	container, err := runtime.New(e.ID, e.BundlePath)
+	container, err := runtime.New(h.s.stateDir, e.ID, e.BundlePath)
 	if err != nil {
 		return err
 	}
