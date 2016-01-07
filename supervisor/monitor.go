@@ -53,7 +53,7 @@ func (m *Monitor) Close() error {
 }
 
 func (m *Monitor) start() {
-	var events [32]syscall.EpollEvent
+	var events [128]syscall.EpollEvent
 	for {
 		n, err := syscall.EpollWait(m.epollFd, events[:], -1)
 		if err != nil {
@@ -69,8 +69,6 @@ func (m *Monitor) start() {
 				m.m.Lock()
 				proc := m.processes[fd]
 				delete(m.processes, fd)
-				m.m.Unlock()
-				m.exits <- proc
 				if err = syscall.EpollCtl(m.epollFd, syscall.EPOLL_CTL_DEL, fd, &syscall.EpollEvent{
 					Events: syscall.EPOLLHUP,
 					Fd:     int32(fd),
@@ -80,6 +78,8 @@ func (m *Monitor) start() {
 				if err := proc.Close(); err != nil {
 					logrus.WithField("error", err).Error("containerd: close process IO")
 				}
+				m.m.Unlock()
+				m.exits <- proc
 			}
 		}
 	}

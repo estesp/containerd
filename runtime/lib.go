@@ -119,15 +119,15 @@ func (c *container) Start() (Process, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
 	}
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
 	spec, err := c.readSpec()
 	if err != nil {
 		return nil, err
 	}
 	p, err := newProcess(processRoot, InitProcessID, c, spec.Process)
 	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 	c.processes[InitProcessID] = p

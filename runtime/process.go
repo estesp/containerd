@@ -47,8 +47,6 @@ func loadProcess(root, id string, c *container, s specs.Process) (*process, erro
 		stdout:    filepath.Join(root, "stdout"),
 		stderr:    filepath.Join(root, "stderr"),
 	}
-	// check if the process is alive before opening the exit pipe
-	// TODO: this can be racy
 	if _, err := p.ExitStatus(); err != nil {
 		if err == ErrProcessNotExited {
 			exit, err := getExitPipe(filepath.Join(root, ExitFile))

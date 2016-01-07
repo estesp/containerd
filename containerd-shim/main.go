@@ -55,6 +55,12 @@ func main() {
 	if len(os.Args) < 2 {
 		logrus.Fatal("shim: no arguments provided")
 	}
+	log, err := os.Create(filepath.Join(os.Args[1], "log"))
+	if err != nil {
+		logrus.Fatal("shim: create log file")
+	}
+	defer log.Close()
+	logrus.SetOutput(log)
 	// start handling signals as soon as possible so that things are properly reaped
 	// or if runc exits before we hit the handler
 	signals := make(chan os.Signal, bufferSize)
