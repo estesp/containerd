@@ -172,40 +172,34 @@ func (s *apiServer) State(ctx context.Context, r *types.StateRequest) (*types.St
 			Memory: uint64(m.Cpus),
 		},
 	}
-	/*
-		for _, c := range e.Containers {
-			processes, err := c.Processes()
-			if err != nil {
-				return nil, grpc.Errorf(codes.Internal, "get processes for container")
-			}
-			var procs []*types.Process
-			for _, p := range processes {
-				pid, err := p.Pid()
-				if err != nil {
-					logrus.WithField("error", err).Error("get process pid")
-				}
-				oldProc := p.Spec()
-				procs = append(procs, &types.Process{
-					Pid:      uint32(pid),
-					Terminal: oldProc.Terminal,
-					Args:     oldProc.Args,
-					Env:      oldProc.Env,
-					Cwd:      oldProc.Cwd,
-					User: &types.User{
-						Uid:            oldProc.User.UID,
-						Gid:            oldProc.User.GID,
-						AdditionalGids: oldProc.User.AdditionalGids,
-					},
-				})
-			}
-			state.Containers = append(state.Containers, &types.Container{
-				Id:         c.ID(),
-				BundlePath: c.Path(),
-				Processes:  procs,
-				Status:     string(c.State().Status),
+	for _, c := range e.Containers {
+		processes, err := c.Processes()
+		if err != nil {
+			return nil, grpc.Errorf(codes.Internal, "get processes for container")
+		}
+		var procs []*types.Process
+		for _, p := range processes {
+			oldProc := p.Spec()
+			procs = append(procs, &types.Process{
+				Pid:      p.ID(),
+				Terminal: oldProc.Terminal,
+				Args:     oldProc.Args,
+				Env:      oldProc.Env,
+				Cwd:      oldProc.Cwd,
+				User: &types.User{
+					Uid:            oldProc.User.UID,
+					Gid:            oldProc.User.GID,
+					AdditionalGids: oldProc.User.AdditionalGids,
+				},
 			})
 		}
-	*/
+		state.Containers = append(state.Containers, &types.Container{
+			Id:         c.ID(),
+			BundlePath: c.Path(),
+			Processes:  procs,
+			Status:     string(c.State().Status),
+		})
+	}
 	return state, nil
 }
 

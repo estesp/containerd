@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -62,9 +63,13 @@ func listContainers(context *cli.Context) {
 		fatal(err.Error(), 1)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 20, 1, 3, ' ', 0)
-	fmt.Fprint(w, "ID\tPATH\tSTATUS\n")
+	fmt.Fprint(w, "ID\tPATH\tSTATUS\tPROCESSES\n")
 	for _, c := range resp.Containers {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", c.Id, c.BundlePath, c.Status)
+		procs := []string{}
+		for _, p := range c.Processes {
+			procs = append(procs, p.Pid)
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", c.Id, c.BundlePath, c.Status, strings.Join(procs, ","))
 	}
 	if err := w.Flush(); err != nil {
 		fatal(err.Error(), 1)

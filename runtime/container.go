@@ -4,6 +4,8 @@ import (
 	"io"
 	"os"
 	"time"
+
+	"github.com/opencontainers/specs"
 )
 
 type Process interface {
@@ -24,8 +26,7 @@ type Process interface {
 	// ExitStatus returns the exit status of the process or an error if it
 	// has not exited
 	ExitStatus() (int, error)
-	// Pid() (int, error)
-	// Spec() specs.Process
+	Spec() specs.Process
 	// Signal sends the provided signal to the process
 	Signal(os.Signal) error
 	// Container returns the container that the process belongs to
@@ -107,9 +108,9 @@ type Container interface {
 	// Pid returns the container's init process id
 	// Pid() (int, error)
 	// Processes returns all the containers processes that have been added
-	// Processes() ([]Process, error)
+	Processes() ([]Process, error)
 	// State returns the containers runtime state
-	// State() State
+	State() State
 	// Resume resumes a paused container
 	Resume() error
 	// Pause pauses a running container

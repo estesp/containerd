@@ -6,13 +6,16 @@ import (
 	"path/filepath"
 	"strconv"
 	"syscall"
+
+	"github.com/opencontainers/specs"
 )
 
-func newProcess(root, id string, c *container) (*process, error) {
+func newProcess(root, id string, c *container, s specs.Process) (*process, error) {
 	p := &process{
 		root:      root,
 		id:        id,
 		container: c,
+		spec:      s,
 	}
 	// create fifo's for the process
 	for name, fd := range map[string]*string{
@@ -51,6 +54,7 @@ type process struct {
 
 	exitPipe  *os.File
 	container *container
+	spec      specs.Process
 }
 
 func (p *process) ID() string {
@@ -81,6 +85,10 @@ func (p *process) ExitStatus() (int, error) {
 // Signal sends the provided signal to the process
 func (p *process) Signal(s os.Signal) error {
 	return errNotImplemented
+}
+
+func (p *process) Spec() specs.Process {
+	return p.spec
 }
 
 func (p *process) Stdin() string {
