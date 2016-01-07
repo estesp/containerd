@@ -2,11 +2,13 @@ package runtime
 
 import (
 	"encoding/json"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/opencontainers/specs"
 )
 
@@ -46,7 +48,49 @@ func New(root, id, bundle string) (Container, error) {
 }
 
 func Load(root, id string) (Container, error) {
-	return nil, nil
+	var s state
+	f, err := os.Open(filepath.Join(root, id, StateFile))
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if err := json.NewDecoder(f).Decode(&s); err != nil {
+		return nil, err
+	}
+	c := &container{
+		root:      root,
+		id:        id,
+		bundle:    s.Bundle,
+		processes: make(map[string]*process),
+	}
+	dirs, err := ioutil.ReadDir(filepath.Join(root, id))
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		pid := d.Name()
+		// TODO: get the process spec from a state file in the process dir
+		p, err := loadProcess(filepath.Join(root, id, pid), pid, c, specs.Process{})
+		if err != nil {
+			if err == ErrProcessExited {
+				logrus.WithField("id", id).WithField("pid", pid).Debug("containerd: process exited while away")
+				// TODO: fire events to do the removal
+				if err := os.RemoveAll(filepath.Join(root, id, pid)); err != nil {
+					logrus.WithField("error", err).Warn("containerd: remove process state")
+				}
+				continue
+			}
+			return nil, err
+		}
+		c.processes[pid] = p
+	}
+	if len(c.processes) == 0 {
+		return nil, ErrContainerExited
+	}
+	return c, nil
 }
 
 type container struct {
@@ -66,7 +110,7 @@ func (c *container) Path() string {
 }
 
 func (c *container) Start() (Process, error) {
-	processRoot := filepath.Join(c.root, c.id, "proc")
+	processRoot := filepath.Join(c.root, c.id, InitProcessID)
 	if err := os.MkdirAll(processRoot, 0755); err != nil {
 		return nil, err
 	}

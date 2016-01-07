@@ -167,7 +167,6 @@ func (s *apiServer) State(ctx context.Context, r *types.StateRequest) (*types.St
 	m := s.sv.Machine()
 	state := &types.StateResponse{
 		Machine: &types.Machine{
-			Id:     m.ID,
 			Cpus:   uint32(m.Cpus),
 			Memory: uint64(m.Cpus),
 		},

@@ -1,7 +1,9 @@
 package supervisor
 
 import (
+	"io/ioutil"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -17,11 +19,11 @@ const (
 )
 
 // New returns an initialized Process supervisor.
-func New(id, stateDir string, tasks chan *StartTask, oom bool) (*Supervisor, error) {
+func New(stateDir string, tasks chan *StartTask, oom bool) (*Supervisor, error) {
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		return nil, err
 	}
-	machine, err := CollectMachineInformation(id)
+	machine, err := CollectMachineInformation()
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +34,6 @@ func New(id, stateDir string, tasks chan *StartTask, oom bool) (*Supervisor, err
 	s := &Supervisor{
 		stateDir:       stateDir,
 		containers:     make(map[string]*containerInfo),
-		processes:      make(map[int]*containerInfo),
 		tasks:          tasks,
 		machine:        machine,
 		subscribers:    make(map[chan *Event]struct{}),
@@ -67,6 +68,9 @@ func New(id, stateDir string, tasks chan *StartTask, oom bool) (*Supervisor, err
 		StopStatsEventType:        &StopStatsEvent{s},
 	}
 	go s.exitHandler()
+	if err := s.restore(); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -79,7 +83,6 @@ type Supervisor struct {
 	// stateDir is the directory on the system to store container runtime state information.
 	stateDir   string
 	containers map[string]*containerInfo
-	processes  map[int]*containerInfo
 	handlers   map[EventType]Handler
 	events     chan *Event
 	tasks      chan *StartTask
@@ -178,4 +181,44 @@ func (s *Supervisor) exitHandler() {
 
 func (s *Supervisor) monitorProcess(p runtime.Process) error {
 	return s.monitor.Monitor(p)
+}
+
+func (s *Supervisor) restore() error {
+	dirs, err := ioutil.ReadDir(s.stateDir)
+	if err != nil {
+		return err
+	}
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		id := d.Name()
+		container, err := runtime.Load(s.stateDir, id)
+		if err != nil {
+			if err == runtime.ErrContainerExited {
+				logrus.WithField("id", id).Debug("containerd: container exited while away")
+				// TODO: fire events to do the removal
+				if err := os.RemoveAll(filepath.Join(s.stateDir, id)); err != nil {
+					logrus.WithField("error", err).Warn("containerd: remove container state")
+				}
+				continue
+			}
+			return err
+		}
+		processes, err := container.Processes()
+		if err != nil {
+			return err
+		}
+		ContainersCounter.Inc(1)
+		s.containers[id] = &containerInfo{
+			container: container,
+		}
+		logrus.WithField("id", id).Debug("containerd: container restored")
+		for _, p := range processes {
+			if err := s.monitorProcess(p); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

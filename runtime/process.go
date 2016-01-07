@@ -29,7 +29,7 @@ func newProcess(root, id string, c *container, s specs.Process) (*process, error
 		}
 		*fd = path
 	}
-	exit, err := createExitPipe(filepath.Join(root, ExitFile))
+	exit, err := getExitPipe(filepath.Join(root, ExitFile))
 	if err != nil {
 		return nil, err
 	}
@@ -37,8 +37,34 @@ func newProcess(root, id string, c *container, s specs.Process) (*process, error
 	return p, nil
 }
 
-func createExitPipe(path string) (*os.File, error) {
-	if err := syscall.Mkfifo(path, 0755); err != nil {
+func loadProcess(root, id string, c *container, s specs.Process) (*process, error) {
+	p := &process{
+		root:      root,
+		id:        id,
+		container: c,
+		spec:      s,
+		stdin:     filepath.Join(root, "stdin"),
+		stdout:    filepath.Join(root, "stdout"),
+		stderr:    filepath.Join(root, "stderr"),
+	}
+	// check if the process is alive before opening the exit pipe
+	// TODO: this can be racy
+	if _, err := p.ExitStatus(); err != nil {
+		if err == ErrProcessNotExited {
+			exit, err := getExitPipe(filepath.Join(root, ExitFile))
+			if err != nil {
+				return nil, err
+			}
+			p.exitPipe = exit
+			return p, nil
+		}
+		return nil, err
+	}
+	return nil, ErrProcessExited
+}
+
+func getExitPipe(path string) (*os.File, error) {
+	if err := syscall.Mkfifo(path, 0755); err != nil && !os.IsExist(err) {
 		return nil, err
 	}
 	return os.OpenFile(path, syscall.O_RDONLY, 0)
@@ -73,7 +99,13 @@ func (p *process) ExitFD() int {
 func (p *process) ExitStatus() (int, error) {
 	data, err := ioutil.ReadFile(filepath.Join(p.root, ExitStatusFile))
 	if err != nil {
+		if os.IsNotExist(err) {
+			return -1, ErrProcessNotExited
+		}
 		return -1, err
+	}
+	if len(data) == 0 {
+		return -1, ErrProcessNotExited
 	}
 	i, err := strconv.Atoi(string(data))
 	if err != nil {

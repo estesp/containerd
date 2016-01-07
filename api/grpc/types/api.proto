@@ -117,9 +117,8 @@ message Container {
 
 // Machine is information about machine on which containerd is run
 message Machine {
-	string id = 1; // ID of machine
-	uint32 cpus = 2; // number of cpus
-	uint64 memory = 3; // amount of memory
+	uint32 cpus = 1; // number of cpus
+	uint64 memory = 2; // amount of memory
 }
 
 // StateResponse is information about containerd daemon

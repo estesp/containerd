@@ -10,6 +10,7 @@ var (
 	ErrContainerExited       = errors.New("containerd: container has exited")
 	ErrTerminalsNotSupported = errors.New("containerd: terminals are not supported for runtime")
 	ErrProcessNotExited      = errors.New("containerd: process has not exited")
+	ErrProcessExited         = errors.New("containerd: process has exited")
 
 	errNotImplemented = errors.New("containerd: not implemented")
 )

@@ -85,9 +85,17 @@ var AttachCommand = cli.Command{
 			Value: "/run/containerd",
 			Usage: "runtime state directory",
 		},
+		cli.StringFlag{
+			Name:  "pid,p",
+			Value: "init",
+			Usage: "specify the process id to attach to",
+		},
 	},
 	Action: func(context *cli.Context) {
-		id := context.Args().First()
+		var (
+			id  = context.Args().First()
+			pid = context.String("pid")
+		)
 		if id == "" {
 			fatal("container id cannot be empty", 1)
 		}
@@ -97,9 +105,9 @@ var AttachCommand = cli.Command{
 			fatal(err.Error(), 1)
 		}
 		if err := attachStdio(
-			filepath.Join(context.String("state-dir"), id, "proc", "stdin"),
-			filepath.Join(context.String("state-dir"), id, "proc", "stdout"),
-			filepath.Join(context.String("state-dir"), id, "proc", "stderr"),
+			filepath.Join(context.String("state-dir"), id, pid, "stdin"),
+			filepath.Join(context.String("state-dir"), id, pid, "stdout"),
+			filepath.Join(context.String("state-dir"), id, pid, "stderr"),
 		); err != nil {
 			fatal(err.Error(), 1)
 		}
@@ -115,7 +123,7 @@ var AttachCommand = cli.Command{
 			if err != nil {
 				fatal(err.Error(), 1)
 			}
-			if e.Id == id && e.Type == "exit" {
+			if e.Id == id && e.Type == "exit" && e.Pid == pid {
 				os.Exit(int(e.Status))
 			}
 		}
