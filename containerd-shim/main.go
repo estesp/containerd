@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -10,6 +12,8 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/containerd/util"
+	"github.com/opencontainers/runc/libcontainer"
+	"github.com/opencontainers/specs"
 )
 
 const (
@@ -17,9 +21,10 @@ const (
 )
 
 type stdio struct {
-	stdin  *os.File
-	stdout *os.File
-	stderr *os.File
+	stdin   *os.File
+	stdout  *os.File
+	stderr  *os.File
+	console string
 }
 
 func (s *stdio) Close() error {
@@ -106,7 +111,7 @@ func main() {
 
 // startRunc starts runc and returns RUNC's pid
 func startRunc(s *stdio, id string) (int, error) {
-	cmd := exec.Command("runc", "--id", id, "start")
+	cmd := exec.Command("runc", "--id", id, "start", "--console", s.console)
 	cmd.Stdin = s.stdin
 	cmd.Stdout = s.stdout
 	cmd.Stderr = s.stderr
@@ -125,6 +130,33 @@ func startRunc(s *stdio, id string) (int, error) {
 // in RDWR so that they remain open if the other side stops listening
 func openContainerSTDIO(dir string) (*stdio, error) {
 	s := &stdio{}
+	spec, err := getSpec()
+	if err != nil {
+		return nil, err
+	}
+	if spec.Process.Terminal {
+		console, err := libcontainer.NewConsole(int(spec.Process.User.UID), int(spec.Process.User.GID))
+		if err != nil {
+			return nil, err
+		}
+		s.console = console.Path()
+		stdin, err := os.OpenFile(filepath.Join(dir, "stdin"), syscall.O_RDWR, 0)
+		if err != nil {
+			return nil, err
+		}
+		go func() {
+			io.Copy(console, stdin)
+		}()
+		stdout, err := os.OpenFile(filepath.Join(dir, "stdout"), syscall.O_RDWR, 0)
+		if err != nil {
+			return nil, err
+		}
+		go func() {
+			io.Copy(stdout, console)
+			console.Close()
+		}()
+		return s, nil
+	}
 	for name, dest := range map[string]**os.File{
 		"stdin":  &s.stdin,
 		"stdout": &s.stdout,
@@ -137,6 +169,19 @@ func openContainerSTDIO(dir string) (*stdio, error) {
 		*dest = f
 	}
 	return s, nil
+}
+
+func getSpec() (*specs.Spec, error) {
+	var s specs.Spec
+	f, err := os.Open("config.json")
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if err := json.NewDecoder(f).Decode(&s); err != nil {
+		return nil, err
+	}
+	return &s, nil
 }
 
 func writeInt(path string, i int) error {

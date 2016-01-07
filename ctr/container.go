@@ -15,7 +15,6 @@ import (
 	"github.com/codegangsta/cli"
 	"github.com/docker/containerd/api/grpc/types"
 	"github.com/docker/docker/pkg/term"
-	"github.com/opencontainers/runc/libcontainer"
 	"github.com/opencontainers/specs"
 	netcontext "golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -104,6 +103,30 @@ var AttachCommand = cli.Command{
 		if err != nil {
 			fatal(err.Error(), 1)
 		}
+		type bundleState struct {
+			Bundle string `json:"bundle"`
+		}
+		f, err := os.Open(filepath.Join(context.String("state-dir"), id, "state.json"))
+		if err != nil {
+			fatal(err.Error(), 1)
+		}
+		var s bundleState
+		err = json.NewDecoder(f).Decode(&s)
+		f.Close()
+		if err != nil {
+			fatal(err.Error(), 1)
+		}
+		mkterm, err := readTermSetting(s.Bundle)
+		if err != nil {
+			fatal(err.Error(), 1)
+		}
+		if mkterm {
+			s, err := term.SetRawTerminal(os.Stdin.Fd())
+			if err != nil {
+				fatal(err.Error(), 1)
+			}
+			state = s
+		}
 		if err := attachStdio(
 			filepath.Join(context.String("state-dir"), id, pid, "stdin"),
 			filepath.Join(context.String("state-dir"), id, pid, "stdout"),
@@ -175,15 +198,14 @@ var StartCommand = cli.Command{
 				fatal(err.Error(), 1)
 			}
 			if mkterm {
-				/*
-					if err := attachTty(&r.Console); err != nil {
-						fatal(err.Error(), 1)
-					}
-				*/
-			} else {
-				if err := attachStdio(resp.Stdin, resp.Stdout, resp.Stderr); err != nil {
+				s, err := term.SetRawTerminal(os.Stdin.Fd())
+				if err != nil {
 					fatal(err.Error(), 1)
 				}
+				state = s
+			}
+			if err := attachStdio(resp.Stdin, resp.Stdout, resp.Stderr); err != nil {
+				fatal(err.Error(), 1)
 			}
 		}
 		if context.Bool("attach") {
@@ -227,36 +249,19 @@ func readTermSetting(path string) (bool, error) {
 	return spec.Process.Terminal, nil
 }
 
-func attachTty(consolePath *string) error {
-	console, err := libcontainer.NewConsole(os.Getuid(), os.Getgid())
-	if err != nil {
-		return err
-	}
-	*consolePath = console.Path()
-	stdin = console
-	go func() {
-		io.Copy(os.Stdout, console)
-		console.Close()
-	}()
-	s, err := term.SetRawTerminal(os.Stdin.Fd())
-	if err != nil {
-		return err
-	}
-	state = s
-	return nil
-}
-
 func attachStdio(stdins, stdout, stderr string) error {
-	stdinf, err := os.Open(stdins)
+	stdinf, err := os.OpenFile(stdins, syscall.O_RDWR, 0)
 	if err != nil {
 		return err
 	}
 	stdin = stdinf
+
 	stdoutf, err := os.OpenFile(stdout, syscall.O_RDWR, 0)
 	if err != nil {
 		return err
 	}
 	go io.Copy(os.Stdout, stdoutf)
+
 	stderrf, err := os.OpenFile(stderr, syscall.O_RDWR, 0)
 	if err != nil {
 		return err
