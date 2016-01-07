@@ -50,7 +50,7 @@ type Event struct {
 	Stderr        string
 	Stdin         string
 	Console       string
-	Pid           int
+	Pid           string
 	Status        int
 	Signal        os.Signal
 	ProcessSpec   *specs.Process

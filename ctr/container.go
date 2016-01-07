@@ -62,9 +62,9 @@ func listContainers(context *cli.Context) {
 		fatal(err.Error(), 1)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 20, 1, 3, ' ', 0)
-	fmt.Fprint(w, "ID\tPATH\tSTATUS\tPID1\n")
+	fmt.Fprint(w, "ID\tPATH\tSTATUS\n")
 	for _, c := range resp.Containers {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\n", c.Id, c.BundlePath, c.Status, c.Processes[0].Pid)
+		fmt.Fprintf(w, "%s\t%s\t%s\n", c.Id, c.BundlePath, c.Status)
 	}
 	if err := w.Flush(); err != nil {
 		fatal(err.Error(), 1)
@@ -186,7 +186,7 @@ var StartCommand = cli.Command{
 				if err != nil {
 					fatal(err.Error(), 1)
 				}
-				if e.Id == id && e.Type == "exit" {
+				if e.Id == id && e.Type == "exit" && e.Pid == "init" {
 					os.Exit(int(e.Status))
 				}
 			}
@@ -256,7 +256,7 @@ var KillCommand = cli.Command{
 	Name:  "kill",
 	Usage: "send a signal to a container or it's processes",
 	Flags: []cli.Flag{
-		cli.IntFlag{
+		cli.StringFlag{
 			Name:  "pid,p",
 			Usage: "pid of the process to signal within the container",
 		},
@@ -274,7 +274,7 @@ var KillCommand = cli.Command{
 		c := getClient(context)
 		if _, err := c.Signal(netcontext.Background(), &types.SignalRequest{
 			Id:     id,
-			Pid:    uint32(context.Int("pid")),
+			Pid:    context.String("pid"),
 			Signal: uint32(context.Int("signal")),
 		}); err != nil {
 			fatal(err.Error(), 1)
@@ -317,57 +317,58 @@ var ExecCommand = cli.Command{
 		},
 	},
 	Action: func(context *cli.Context) {
-		p := &types.AddProcessRequest{
-			Args:     context.Args(),
-			Cwd:      context.String("cwd"),
-			Terminal: context.Bool("tty"),
-			Id:       context.String("id"),
-			Env:      context.StringSlice("env"),
-			User: &types.User{
-				Uid: uint32(context.Int("uid")),
-				Gid: uint32(context.Int("gid")),
-			},
-		}
-		c := getClient(context)
-		events, err := c.Events(netcontext.Background(), &types.EventsRequest{})
-		if err != nil {
-			fatal(err.Error(), 1)
-		}
+		panic("not implemented")
 		/*
-			if context.Bool("attach") {
-				if p.Terminal {
-					if err := attachTty(&p.Console); err != nil {
-						fatal(err.Error(), 1)
-					}
-				} else {
-					if err := attachStdio(&p.Stdin, &p.Stdout, &p.Stderr); err != nil {
-						fatal(err.Error(), 1)
-					}
-				}
+			p := &types.AddProcessRequest{
+				Args:     context.Args(),
+				Cwd:      context.String("cwd"),
+				Terminal: context.Bool("tty"),
+				Id:       context.String("id"),
+				Env:      context.StringSlice("env"),
+				User: &types.User{
+					Uid: uint32(context.Int("uid")),
+					Gid: uint32(context.Int("gid")),
+				},
 			}
-		*/
-		r, err := c.AddProcess(netcontext.Background(), p)
-		if err != nil {
-			fatal(err.Error(), 1)
-		}
-		if context.Bool("attach") {
-			go func() {
-				io.Copy(stdin, os.Stdin)
-				if state != nil {
-					term.RestoreTerminal(os.Stdin.Fd(), state)
-				}
-				stdin.Close()
-			}()
-			for {
-				e, err := events.Recv()
+			c := getClient(context)
+					events, err := c.Events(netcontext.Background(), &types.EventsRequest{})
+					if err != nil {
+						fatal(err.Error(), 1)
+					}
+						if context.Bool("attach") {
+							if p.Terminal {
+								if err := attachTty(&p.Console); err != nil {
+									fatal(err.Error(), 1)
+								}
+							} else {
+								if err := attachStdio(&p.Stdin, &p.Stdout, &p.Stderr); err != nil {
+									fatal(err.Error(), 1)
+								}
+							}
+						}
+				r, err := c.AddProcess(netcontext.Background(), p)
 				if err != nil {
 					fatal(err.Error(), 1)
 				}
-				if e.Pid == r.Pid && e.Type == "exit" {
-					os.Exit(int(e.Status))
+				if context.Bool("attach") {
+					go func() {
+						io.Copy(stdin, os.Stdin)
+						if state != nil {
+							term.RestoreTerminal(os.Stdin.Fd(), state)
+						}
+						stdin.Close()
+					}()
+					for {
+							e, err := events.Recv()
+							if err != nil {
+								fatal(err.Error(), 1)
+							}
+								if e.Pid == r.Pid && e.Type == "exit" {
+									os.Exit(int(e.Status))
+								}
+					}
 				}
-			}
-		}
+		*/
 	},
 }
 

@@ -30,7 +30,7 @@ message CreateContainerResponse {
 
 message SignalRequest {
 	string id = 1; // ID of container
-	uint32 pid = 2; // PID of process inside container
+	string pid = 2; // PID of process inside container
 	uint32 signal = 3; // Signal which will be sent, you can find value in "man 7 signal"
 }
 
@@ -57,7 +57,6 @@ message User {
 }
 
 message AddProcessResponse {
-	uint32 pid = 1; // PID of process is returned in case of success
 }
 
 message CreateCheckpointRequest {
@@ -100,7 +99,7 @@ message ContainerState {
 }
 
 message Process {
-	uint32 pid = 1;
+	string pid = 1;
 	bool terminal = 2; // Use tty for container stdio
 	User user = 3; // User under which process will be run
 	repeated string args = 4; // Arguments for process, first is binary path itself
@@ -146,7 +145,7 @@ message Event {
 	string id = 2;
 	uint32 status = 3;
 	string bundlePath = 4;
-	uint32 pid = 5;
+	string pid = 5;
 	uint32 signal = 7;
 	Process process = 8;
 	repeated Container containers = 9;

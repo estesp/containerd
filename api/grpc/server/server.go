@@ -54,7 +54,7 @@ func (s *apiServer) CreateContainer(ctx context.Context, c *types.CreateContaine
 func (s *apiServer) Signal(ctx context.Context, r *types.SignalRequest) (*types.SignalResponse, error) {
 	e := supervisor.NewEvent(supervisor.SignalEventType)
 	e.ID = r.Id
-	e.Pid = int(r.Pid)
+	e.Pid = r.Pid
 	e.Signal = syscall.Signal(int(r.Signal))
 	s.sv.SendEvent(e)
 	if err := <-e.Err; err != nil {
@@ -86,7 +86,7 @@ func (s *apiServer) AddProcess(ctx context.Context, r *types.AddProcessRequest) 
 	if err := <-e.Err; err != nil {
 		return nil, err
 	}
-	return &types.AddProcessResponse{Pid: uint32(e.Pid)}, nil
+	return &types.AddProcessResponse{}, nil
 }
 
 func (s *apiServer) CreateCheckpoint(ctx context.Context, r *types.CreateCheckpointRequest) (*types.CreateCheckpointResponse, error) {
@@ -235,7 +235,7 @@ func (s *apiServer) Events(r *types.EventsRequest, stream types.API_EventsServer
 			ev = &types.Event{
 				Type:   "exit",
 				Id:     evt.ID,
-				Pid:    uint32(evt.Pid),
+				Pid:    evt.Pid,
 				Status: uint32(evt.Status),
 			}
 		case supervisor.OOMEventType:

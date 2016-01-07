@@ -34,6 +34,7 @@ func (h *ExitEvent) Handle(e *Event) error {
 	ne := NewEvent(DeleteEventType)
 	ne.ID = container.ID()
 	ne.Status = status
+	ne.Pid = proc.ID()
 	h.s.SendEvent(ne)
 
 	// remove stats collection for container
