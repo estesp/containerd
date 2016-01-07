@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	LockFile       = "waitlock"
+	ExitFile       = "exit"
 	ExitStatusFile = "exitStatus"
 	StateFile      = "state.json"
+	InitProcessID  = "init"
 )
 
 type state struct {
@@ -21,9 +22,10 @@ type state struct {
 // New returns a new container
 func New(root, id, bundle string) (Container, error) {
 	c := &container{
-		root:   root,
-		id:     id,
-		bundle: bundle,
+		root:      root,
+		id:        id,
+		bundle:    bundle,
+		processes: make(map[string]*process),
 	}
 	if err := os.Mkdir(filepath.Join(root, id), 0755); err != nil {
 		return nil, err
@@ -47,9 +49,10 @@ func Load(root, id string) (Container, error) {
 
 type container struct {
 	// path to store runtime state information
-	root   string
-	id     string
-	bundle string
+	root      string
+	id        string
+	bundle    string
+	processes map[string]*process
 }
 
 func (c *container) ID() string {
@@ -65,27 +68,19 @@ func (c *container) Start() (Process, error) {
 	if err := os.MkdirAll(processRoot, 0755); err != nil {
 		return nil, err
 	}
-	lock, err := c.createLock(processRoot)
-	if err != nil {
-		return nil, err
-	}
-	// TODO: this may not work and it may release the lock
-	defer lock.Close()
 	cmd := exec.Command("containerd-shim", processRoot, c.id)
 	cmd.Dir = c.bundle
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
 	}
-	cmd.ExtraFiles = []*os.File{
-		lock,
-	}
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	p, err := newProcess(processRoot)
+	p, err := newProcess(processRoot, InitProcessID, c)
 	if err != nil {
 		return nil, err
 	}
+	c.processes[InitProcessID] = p
 	return p, nil
 }
 
@@ -98,17 +93,5 @@ func (c *container) Resume() error {
 }
 
 func (c *container) Delete() error {
-	return nil
-}
-
-func (c *container) createLock(root string) (*os.File, error) {
-	lock, err := os.Create(filepath.Join(root, LockFile))
-	if err != nil {
-		return nil, err
-	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		lock.Close()
-		return nil, err
-	}
-	return lock, nil
+	return os.RemoveAll(filepath.Join(c.root, c.id))
 }

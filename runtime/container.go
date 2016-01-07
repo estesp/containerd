@@ -8,12 +8,28 @@ import (
 
 type Process interface {
 	io.Closer
-	Stdin() *os.File
-	Stdout() *os.File
-	Stderr() *os.File
+
+	// ID of the process.
+	// This is either "init" when it is the container's init process or
+	// it is a user provided id for the process similar to the container id
+	ID() string
+	// Stdin returns the path the the processes stdin fifo
+	Stdin() string
+	// Stdout returns the path the the processes stdout fifo
+	Stdout() string
+	// Stderr returns the path the the processes stderr fifo
+	Stderr() string
+	// ExitFD returns the fd the provides an event when the process exits
+	ExitFD() int
+	// ExitStatus returns the exit status of the process or an error if it
+	// has not exited
+	ExitStatus() (int, error)
 	// Pid() (int, error)
 	// Spec() specs.Process
+	// Signal sends the provided signal to the process
 	Signal(os.Signal) error
+	// Container returns the container that the process belongs to
+	Container() Container
 }
 
 type Status string

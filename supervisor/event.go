@@ -53,9 +53,10 @@ type Event struct {
 	Pid           int
 	Status        int
 	Signal        os.Signal
-	Process       *specs.Process
+	ProcessSpec   *specs.Process
 	State         *runtime.State
 	Containers    []runtime.Container
+	Process       runtime.Process
 	Checkpoint    *runtime.Checkpoint
 	Err           chan error
 	StartResponse chan StartResponse

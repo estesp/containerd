@@ -8,12 +8,14 @@ import (
 	"syscall"
 )
 
-func newProcess(root string) (*process, error) {
+func newProcess(root, id string, c *container) (*process, error) {
 	p := &process{
-		root: root,
+		root:      root,
+		id:        id,
+		container: c,
 	}
 	// create fifo's for the process
-	for name, fd := range map[string]**os.File{
+	for name, fd := range map[string]*string{
 		"stdin":  &p.stdin,
 		"stdout": &p.stdout,
 		"stderr": &p.stderr,
@@ -22,34 +24,49 @@ func newProcess(root string) (*process, error) {
 		if err := syscall.Mkfifo(path, 0755); err != nil && !os.IsExist(err) {
 			return nil, err
 		}
-		f, err := os.OpenFile(path, syscall.O_RDWR, 0)
-		if err != nil {
-			return nil, err
-		}
-		*fd = f
+		*fd = path
 	}
+	exit, err := createExitPipe(filepath.Join(root, ExitFile))
+	if err != nil {
+		return nil, err
+	}
+	p.exitPipe = exit
 	return p, nil
+}
+
+func createExitPipe(path string) (*os.File, error) {
+	if err := syscall.Mkfifo(path, 0755); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(path, syscall.O_RDONLY, 0)
 }
 
 type process struct {
 	root string
+	id   string
 	// stdio fifos
-	stdin  *os.File
-	stdout *os.File
-	stderr *os.File
+	stdin  string
+	stdout string
+	stderr string
+
+	exitPipe  *os.File
+	container *container
 }
 
-// Wait opens the file lock as a shared lock and blocks until the process exits
-// and returns the exit status
-func (p *process) Wait() (int, error) {
-	fd, err := syscall.Open(filepath.Join(p.root, LockFile), syscall.O_RDONLY|syscall.O_CLOEXEC, 0)
-	if err != nil {
-		return -1, err
-	}
-	defer syscall.Close(fd)
-	if err := syscall.Flock(fd, syscall.LOCK_SH); err != nil {
-		return -1, err
-	}
+func (p *process) ID() string {
+	return p.id
+}
+
+func (p *process) Container() Container {
+	return p.container
+}
+
+// ExitFD returns the fd of the exit pipe
+func (p *process) ExitFD() int {
+	return int(p.exitPipe.Fd())
+}
+
+func (p *process) ExitStatus() (int, error) {
 	data, err := ioutil.ReadFile(filepath.Join(p.root, ExitStatusFile))
 	if err != nil {
 		return -1, err
@@ -66,26 +83,19 @@ func (p *process) Signal(s os.Signal) error {
 	return errNotImplemented
 }
 
-func (p *process) Stdin() *os.File {
+func (p *process) Stdin() string {
 	return p.stdin
 }
 
-func (p *process) Stdout() *os.File {
+func (p *process) Stdout() string {
 	return p.stdout
 }
 
-func (p *process) Stderr() *os.File {
+func (p *process) Stderr() string {
 	return p.stderr
 }
 
 // Close closes any open files and/or resouces on the process
 func (p *process) Close() error {
-	err := p.stdin.Close()
-	if oerr := p.stdout.Close(); err == nil {
-		err = oerr
-	}
-	if oerr := p.stderr.Close(); err == nil {
-		err = oerr
-	}
-	return err
+	return p.exitPipe.Close()
 }

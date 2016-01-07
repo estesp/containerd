@@ -25,6 +25,10 @@ func New(id, stateDir string, tasks chan *StartTask, oom bool) (*Supervisor, err
 	if err != nil {
 		return nil, err
 	}
+	monitor, err := NewMonitor()
+	if err != nil {
+		return nil, err
+	}
 	s := &Supervisor{
 		stateDir:       stateDir,
 		containers:     make(map[string]*containerInfo),
@@ -34,6 +38,7 @@ func New(id, stateDir string, tasks chan *StartTask, oom bool) (*Supervisor, err
 		subscribers:    make(map[chan *Event]struct{}),
 		statsCollector: newStatsCollector(statsInterval),
 		el:             eventloop.NewChanLoop(defaultBufferSize),
+		monitor:        monitor,
 	}
 	if oom {
 		s.notifier = chanotify.New()
@@ -61,7 +66,7 @@ func New(id, stateDir string, tasks chan *StartTask, oom bool) (*Supervisor, err
 		UnsubscribeStatsEventType: &UnsubscribeStatsEvent{s},
 		StopStatsEventType:        &StopStatsEvent{s},
 	}
-	// start the container workers for concurrent container starts
+	go s.exitHandler()
 	return s, nil
 }
 
@@ -86,6 +91,7 @@ type Supervisor struct {
 	statsCollector *statsCollector
 	notifier       *chanotify.Notifier
 	el             eventloop.EventLoop
+	monitor        *Monitor
 }
 
 // Stop closes all tasks and sends a SIGTERM to each container's pid1 then waits for they to
@@ -156,47 +162,20 @@ func (s *Supervisor) Machine() Machine {
 	return s.machine
 }
 
-// getContainerForPid returns the container where the provided pid is the pid1 or main
-// process in the container
-func (s *Supervisor) getContainerForPid(pid int) (runtime.Container, error) {
-	/*
-		for _, i := range s.containers {
-				container := i.container
-					cpid, err := container.Pid()
-					if err != nil {
-						if lerr, ok := err.(libcontainer.Error); ok {
-							if lerr.Code() == libcontainer.ProcessNotExecuted {
-								continue
-							}
-						}
-						logrus.WithField("error", err).Error("containerd: get container pid")
-					}
-					if pid == cpid {
-						return container, nil
-					}
-		}
-	*/
-	return nil, errNoContainerForPid
-}
-
 // SendEvent sends the provided event the the supervisors main event loop
 func (s *Supervisor) SendEvent(evt *Event) {
 	EventsCounter.Inc(1)
 	s.el.Send(&commonEvent{data: evt, sv: s})
 }
 
-func (s *Supervisor) copyIO(stdin, stdout, stderr string, i *runtime.IO) (*copier, error) {
-	config := &ioConfig{
-		Stdin:      i.Stdin,
-		Stdout:     i.Stdout,
-		Stderr:     i.Stderr,
-		StdoutPath: stdout,
-		StderrPath: stderr,
-		StdinPath:  stdin,
+func (s *Supervisor) exitHandler() {
+	for p := range s.monitor.Exits() {
+		e := NewEvent(ExitEventType)
+		e.Process = p
+		s.SendEvent(e)
 	}
-	l, err := newCopier(config)
-	if err != nil {
-		return nil, err
-	}
-	return l, nil
+}
+
+func (s *Supervisor) monitorProcess(p runtime.Process) error {
+	return s.monitor.Monitor(p)
 }

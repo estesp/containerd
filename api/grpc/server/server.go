@@ -77,7 +77,7 @@ func (s *apiServer) AddProcess(ctx context.Context, r *types.AddProcessRequest) 
 	}
 	e := supervisor.NewEvent(supervisor.AddProcessEventType)
 	e.ID = r.Id
-	e.Process = process
+	e.ProcessSpec = process
 	e.Console = r.Console
 	e.Stdin = r.Stdin
 	e.Stdout = r.Stdout

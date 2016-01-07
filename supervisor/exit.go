@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/containerd/runtime"
 )
 
 type ExitEvent struct {
@@ -12,35 +13,35 @@ type ExitEvent struct {
 
 func (h *ExitEvent) Handle(e *Event) error {
 	start := time.Now()
-	logrus.WithFields(logrus.Fields{"pid": e.Pid, "status": e.Status}).
-		Debug("containerd: process exited")
-	// is it the child process of a container
-	if info, ok := h.s.processes[e.Pid]; ok {
-		ne := NewEvent(ExecExitEventType)
-		ne.ID = info.container.ID()
-		ne.Pid = e.Pid
-		ne.Status = e.Status
-		h.s.SendEvent(ne)
-		return nil
-	}
-	// is it the main container's process
-	container, err := h.s.getContainerForPid(e.Pid)
+	proc := e.Process
+	status, err := proc.ExitStatus()
 	if err != nil {
-		if err != errNoContainerForPid {
-			logrus.WithField("error", err).Error("containerd: find containers main pid")
-		}
+		logrus.WithField("error", err).Error("containerd: get exit status")
+	}
+	logrus.WithFields(logrus.Fields{"pid": proc.ID(), "status": status}).Debug("containerd: process exited")
+
+	// if the process is the the init process of the container then
+	// fire a separate event for this process
+	if proc.ID() != runtime.InitProcessID {
+		ne := NewEvent(ExecExitEventType)
+		ne.ID = proc.Container().ID()
+		ne.Status = status
+		h.s.SendEvent(ne)
+
 		return nil
 	}
+	container := proc.Container()
 	ne := NewEvent(DeleteEventType)
 	ne.ID = container.ID()
-	ne.Pid = e.Pid
-	ne.Status = e.Status
+	ne.Status = status
 	h.s.SendEvent(ne)
 
+	// remove stats collection for container
 	stopCollect := NewEvent(StopStatsEventType)
 	stopCollect.ID = container.ID()
 	h.s.SendEvent(stopCollect)
 	ExitProcessTimer.UpdateSince(start)
+
 	return nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/docker/containerd/runtime"
 )
 
@@ -72,12 +73,15 @@ func (w *worker) Start() {
 		       }
 		   }
 		*/
+		if err := w.s.monitorProcess(process); err != nil {
+			logrus.WithField("error", err).Error("containerd: add process to monitor")
+		}
 		ContainerStartTimer.UpdateSince(started)
 		t.Err <- nil
 		t.StartResponse <- StartResponse{
-			Stdin:  process.Stdin().Name(),
-			Stdout: process.Stdout().Name(),
-			Stderr: process.Stderr().Name(),
+			Stdin:  process.Stdin(),
+			Stdout: process.Stdout(),
+			Stderr: process.Stderr(),
 		}
 	}
 }

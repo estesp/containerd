@@ -51,7 +51,7 @@ func (s *stdio) Close() error {
 //    ├── stdin
 //    ├── stdout
 //    ├── pid
-//    └── waitlock
+//    └── exit
 func main() {
 	if len(os.Args) < 2 {
 		logrus.Fatal("shim: no arguments provided")
@@ -64,6 +64,12 @@ func main() {
 	if err := util.SetSubreaper(1); err != nil {
 		logrus.WithField("error", err).Fatal("shim: set as subreaper")
 	}
+	// open the exit pipe
+	f, err := os.OpenFile(filepath.Join(os.Args[1], "exit"), syscall.O_WRONLY, 0)
+	if err != nil {
+		logrus.WithField("error", err).Fatal("shim: open exit pipe")
+	}
+	defer f.Close()
 	// open the fifos for use with the command
 	std, err := openContainerSTDIO(os.Args[1])
 	if err != nil {
