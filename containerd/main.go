@@ -192,17 +192,6 @@ func daemon(id, address, stateDir string, concurrency int, oom bool) error {
 		w := supervisor.NewWorker(sv, wg)
 		go w.Start()
 	}
-	// only set containerd as the subreaper if it is not an init process
-	if pid := os.Getpid(); pid != 1 {
-		logrus.WithFields(logrus.Fields{
-			"pid": pid,
-		}).Debug("containerd is not init, set as subreaper")
-		if err := setSubReaper(); err != nil {
-			return err
-		}
-	}
-	// start the signal handler in the background.
-	go startSignalHandler(sv)
 	if err := sv.Start(); err != nil {
 		return err
 	}

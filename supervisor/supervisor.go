@@ -2,17 +2,13 @@ package supervisor
 
 import (
 	"os"
-	"os/signal"
-	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/containerd/chanotify"
 	"github.com/docker/containerd/eventloop"
 	"github.com/docker/containerd/runtime"
-	"github.com/opencontainers/runc/libcontainer"
 )
 
 const (
@@ -25,11 +21,6 @@ func New(id, stateDir string, tasks chan *StartTask, oom bool) (*Supervisor, err
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
 		return nil, err
 	}
-	// register counters
-	r, err := newRuntime(filepath.Join(stateDir, id))
-	if err != nil {
-		return nil, err
-	}
 	machine, err := CollectMachineInformation(id)
 	if err != nil {
 		return nil, err
@@ -38,7 +29,6 @@ func New(id, stateDir string, tasks chan *StartTask, oom bool) (*Supervisor, err
 		stateDir:       stateDir,
 		containers:     make(map[string]*containerInfo),
 		processes:      make(map[int]*containerInfo),
-		runtime:        r,
 		tasks:          tasks,
 		machine:        machine,
 		subscribers:    make(map[chan *Event]struct{}),
@@ -86,7 +76,6 @@ type Supervisor struct {
 	containers map[string]*containerInfo
 	processes  map[int]*containerInfo
 	handlers   map[EventType]Handler
-	runtime    runtime.Runtime
 	events     chan *Event
 	tasks      chan *StartTask
 	// we need a lock around the subscribers map only because additions and deletions from
@@ -94,7 +83,6 @@ type Supervisor struct {
 	subscriberLock sync.RWMutex
 	subscribers    map[chan *Event]struct{}
 	machine        Machine
-	containerGroup sync.WaitGroup
 	statsCollector *statsCollector
 	notifier       *chanotify.Notifier
 	el             eventloop.EventLoop
@@ -103,42 +91,9 @@ type Supervisor struct {
 // Stop closes all tasks and sends a SIGTERM to each container's pid1 then waits for they to
 // terminate.  After it has handled all the SIGCHILD events it will close the signals chan
 // and exit.  Stop is a non-blocking call and will return after the containers have been signaled
-func (s *Supervisor) Stop(sig chan os.Signal) {
+func (s *Supervisor) Stop() {
 	// Close the tasks channel so that no new containers get started
 	close(s.tasks)
-	// send a SIGTERM to all containers
-	for id, i := range s.containers {
-		c := i.container
-		logrus.WithField("id", id).Debug("sending TERM to container processes")
-		procs, err := c.Processes()
-		if err != nil {
-			logrus.WithField("id", id).Warn("get container processes")
-			continue
-		}
-		if len(procs) == 0 {
-			continue
-		}
-		mainProc := procs[0]
-		if err := mainProc.Signal(syscall.SIGTERM); err != nil {
-			pid, _ := mainProc.Pid()
-			logrus.WithFields(logrus.Fields{
-				"id":    id,
-				"pid":   pid,
-				"error": err,
-			}).Error("send SIGTERM to process")
-		}
-	}
-	go func() {
-		logrus.Debug("waiting for containers to exit")
-		s.containerGroup.Wait()
-		logrus.Debug("all containers exited")
-		if s.notifier != nil {
-			s.notifier.Close()
-		}
-		// stop receiving signals and close the channel
-		signal.Stop(sig)
-		close(sig)
-	}()
 }
 
 // Close closes any open files in the supervisor but expects that Stop has been
@@ -190,7 +145,6 @@ func (s *Supervisor) notifySubscribers(e *Event) {
 // state of the Supervisor
 func (s *Supervisor) Start() error {
 	logrus.WithFields(logrus.Fields{
-		"runtime":  s.runtime.Type(),
 		"stateDir": s.stateDir,
 	}).Debug("Supervisor started")
 	return s.el.Start()
@@ -205,21 +159,23 @@ func (s *Supervisor) Machine() Machine {
 // getContainerForPid returns the container where the provided pid is the pid1 or main
 // process in the container
 func (s *Supervisor) getContainerForPid(pid int) (runtime.Container, error) {
-	for _, i := range s.containers {
-		container := i.container
-		cpid, err := container.Pid()
-		if err != nil {
-			if lerr, ok := err.(libcontainer.Error); ok {
-				if lerr.Code() == libcontainer.ProcessNotExecuted {
-					continue
-				}
-			}
-			logrus.WithField("error", err).Error("containerd: get container pid")
+	/*
+		for _, i := range s.containers {
+				container := i.container
+					cpid, err := container.Pid()
+					if err != nil {
+						if lerr, ok := err.(libcontainer.Error); ok {
+							if lerr.Code() == libcontainer.ProcessNotExecuted {
+								continue
+							}
+						}
+						logrus.WithField("error", err).Error("containerd: get container pid")
+					}
+					if pid == cpid {
+						return container, nil
+					}
 		}
-		if pid == cpid {
-			return container, nil
-		}
-	}
+	*/
 	return nil, errNoContainerForPid
 }
 

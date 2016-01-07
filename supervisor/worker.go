@@ -4,7 +4,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/containerd/runtime"
 )
 
@@ -39,25 +38,18 @@ func (w *worker) Start() {
 	defer w.wg.Done()
 	for t := range w.s.tasks {
 		started := time.Now()
-		l, err := w.s.copyIO(t.Stdin, t.Stdout, t.Stderr, t.IO)
-		if err != nil {
-			evt := NewEvent(DeleteEventType)
-			evt.ID = t.Container.ID()
-			w.s.SendEvent(evt)
-			t.Err <- err
-			continue
-		}
-		w.s.containers[t.Container.ID()].copier = l
 		if t.Checkpoint != "" {
-			if err := t.Container.Restore(t.Checkpoint); err != nil {
-				evt := NewEvent(DeleteEventType)
-				evt.ID = t.Container.ID()
-				w.s.SendEvent(evt)
-				t.Err <- err
-				continue
-			}
+			/*
+				if err := t.Container.Restore(t.Checkpoint); err != nil {
+					evt := NewEvent(DeleteEventType)
+					evt.ID = t.Container.ID()
+					w.s.SendEvent(evt)
+					t.Err <- err
+					continue
+				}
+			*/
 		} else {
-			if err := t.Container.Start(); err != nil {
+			if _, err := t.Container.Start(); err != nil {
 				evt := NewEvent(DeleteEventType)
 				evt.ID = t.Container.ID()
 				w.s.SendEvent(evt)
@@ -65,22 +57,24 @@ func (w *worker) Start() {
 				continue
 			}
 		}
-		pid, err := t.Container.Pid()
-		if err != nil {
-			logrus.WithField("error", err).Error("containerd: get container main pid")
-		}
-		if w.s.notifier != nil {
-			n, err := t.Container.OOM()
+		/*
+			pid, err := t.Container.Pid()
 			if err != nil {
-				logrus.WithField("error", err).Error("containerd: notify OOM events")
-			} else {
-				w.s.notifier.Add(n, t.Container.ID())
+				logrus.WithField("error", err).Error("containerd: get container main pid")
 			}
-		}
+			if w.s.notifier != nil {
+				n, err := t.Container.OOM()
+				if err != nil {
+					logrus.WithField("error", err).Error("containerd: notify OOM events")
+				} else {
+					w.s.notifier.Add(n, t.Container.ID())
+				}
+			}
+		*/
 		ContainerStartTimer.UpdateSince(started)
 		t.Err <- nil
 		t.StartResponse <- StartResponse{
-			Pid: pid,
+			Pid: -1,
 		}
 	}
 }

@@ -50,6 +50,7 @@ func (s *stdio) Close() error {
 //    ├── stderr
 //    ├── stdin
 //    ├── stdout
+//    ├── pid
 //    └── waitlock
 func main() {
 	if len(os.Args) < 2 {
@@ -87,7 +88,7 @@ func main() {
 				if e.pid == runcPid {
 					exitShim = true
 					logrus.WithFields(logrus.Fields{"pid": e.pid, "status": e.status}).Info("shim: runc exited")
-					if err := writeExitStatus(e, os.Args[1]); err != nil {
+					if err := writeInt(filepath.Join(os.Args[1], "exitStatus")); err != nil {
 						logrus.WithFields(logrus.Fields{"error": err, "status": e.status}).Error("shim: write exit status")
 					}
 				}
@@ -138,15 +139,13 @@ func openContainerSTDIO(dir string) (*stdio, error) {
 	return s, nil
 }
 
-// writeExitStatus writes runc's exit status, i.e. the container's exit status
-// to a file within the shim's state directory
-func writeExitStatus(e exit, dir string) error {
-	f, err := os.Create(filepath.Join(dir, "exitStatus"))
+func writeInt(path string, i int) error {
+	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	_, err = fmt.Fprintf(f, "%d", e.status)
+	_, err = fmt.Fprintf(f, "%d", i)
 	return err
 }
 

@@ -4,14 +4,12 @@ import (
 	"io"
 	"os"
 	"time"
-
-	"github.com/opencontainers/specs"
 )
 
 type Process interface {
 	io.Closer
-	Pid() (int, error)
-	Spec() specs.Process
+	// Pid() (int, error)
+	// Spec() specs.Process
 	Signal(os.Signal) error
 }
 
@@ -81,36 +79,32 @@ type Checkpoint struct {
 type Container interface {
 	// ID returns the container ID
 	ID() string
-	// Start starts the init process of the container
-	Start() error
 	// Path returns the path to the bundle
 	Path() string
-	// Pid returns the container's init process id
-	Pid() (int, error)
-	// SetExited sets the exit status of the container after it's init dies
-	SetExited(status int)
-	// Delete deletes the container
+	// Start starts the init process of the container
+	Start() (Process, error)
+	// Delete removes the container's state and any resources
 	Delete() error
+	// Pid returns the container's init process id
+	// Pid() (int, error)
 	// Processes returns all the containers processes that have been added
-	Processes() ([]Process, error)
-	// RemoveProcess removes a specific process for the container because it exited
-	RemoveProcess(pid int) error
+	// Processes() ([]Process, error)
 	// State returns the containers runtime state
-	State() State
+	// State() State
 	// Resume resumes a paused container
 	Resume() error
 	// Pause pauses a running container
 	Pause() error
 	// Checkpoints returns all the checkpoints for a container
-	Checkpoints() ([]Checkpoint, error)
+	// Checkpoints() ([]Checkpoint, error)
 	// Checkpoint creates a new checkpoint
-	Checkpoint(Checkpoint) error
+	// Checkpoint(Checkpoint) error
 	// DeleteCheckpoint deletes the checkpoint for the provided name
-	DeleteCheckpoint(name string) error
+	// DeleteCheckpoint(name string) error
 	// Restore restores the container to that of the checkpoint provided by name
-	Restore(name string) error
+	// Restore(name string) error
 	// Stats returns realtime container stats and resource information
-	Stats() (*Stat, error)
+	// Stats() (*Stat, error)
 	// OOM signals the channel if the container received an OOM notification
-	OOM() (<-chan struct{}, error)
+	// OOM() (<-chan struct{}, error)
 }

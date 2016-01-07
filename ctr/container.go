@@ -4,12 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -47,7 +45,6 @@ var ContainersCommand = cli.Command{
 		ListCommand,
 		StartCommand,
 		StatsCommand,
-		WaitCommand,
 	},
 	Action: listContainers,
 }
@@ -132,34 +129,6 @@ var StartCommand = cli.Command{
 			fatal(err.Error(), 1)
 		}
 	},
-}
-
-var WaitCommand = cli.Command{
-	Name:  "wait",
-	Usage: "wait a container",
-	Action: func(context *cli.Context) {
-		path := context.Args().Get(0)
-		if err := wait(filepath.Join(path, "shim", "waitlock")); err != nil {
-			fatal(err.Error(), 1)
-		}
-		data, err := ioutil.ReadFile(filepath.Join(path, "shim", "exitStatus"))
-		if err != nil {
-			fatal(err.Error(), 1)
-		}
-		i, err := strconv.Atoi(string(data))
-		if err != nil {
-			fatal(err.Error(), 1)
-		}
-		os.Exit(i)
-	},
-}
-
-func wait(path string) error {
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC, 0)
-	if err != nil {
-		return err
-	}
-	return syscall.Flock(fd, syscall.LOCK_SH)
 }
 
 var (

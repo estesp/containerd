@@ -140,21 +140,23 @@ func (s *apiServer) ListCheckpoint(ctx context.Context, r *types.ListCheckpointR
 	if container == nil {
 		return nil, grpc.Errorf(codes.NotFound, "no such containers")
 	}
-	checkpoints, err := container.Checkpoints()
-	if err != nil {
-		return nil, err
-	}
 	var out []*types.Checkpoint
-	for _, c := range checkpoints {
-		out = append(out, &types.Checkpoint{
-			Name:        c.Name,
-			Tcp:         c.Tcp,
-			Shell:       c.Shell,
-			UnixSockets: c.UnixSockets,
-			// TODO: figure out timestamp
-			//Timestamp:   c.Timestamp,
-		})
-	}
+	/*
+		checkpoints, err := container.Checkpoints()
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range checkpoints {
+			out = append(out, &types.Checkpoint{
+				Name:        c.Name,
+				Tcp:         c.Tcp,
+				Shell:       c.Shell,
+				UnixSockets: c.UnixSockets,
+				// TODO: figure out timestamp
+				//Timestamp:   c.Timestamp,
+			})
+		}
+	*/
 	return &types.ListCheckpointResponse{Checkpoints: out}, nil
 }
 
@@ -172,38 +174,40 @@ func (s *apiServer) State(ctx context.Context, r *types.StateRequest) (*types.St
 			Memory: uint64(m.Cpus),
 		},
 	}
-	for _, c := range e.Containers {
-		processes, err := c.Processes()
-		if err != nil {
-			return nil, grpc.Errorf(codes.Internal, "get processes for container")
-		}
-		var procs []*types.Process
-		for _, p := range processes {
-			pid, err := p.Pid()
+	/*
+		for _, c := range e.Containers {
+			processes, err := c.Processes()
 			if err != nil {
-				logrus.WithField("error", err).Error("get process pid")
+				return nil, grpc.Errorf(codes.Internal, "get processes for container")
 			}
-			oldProc := p.Spec()
-			procs = append(procs, &types.Process{
-				Pid:      uint32(pid),
-				Terminal: oldProc.Terminal,
-				Args:     oldProc.Args,
-				Env:      oldProc.Env,
-				Cwd:      oldProc.Cwd,
-				User: &types.User{
-					Uid:            oldProc.User.UID,
-					Gid:            oldProc.User.GID,
-					AdditionalGids: oldProc.User.AdditionalGids,
-				},
+			var procs []*types.Process
+			for _, p := range processes {
+				pid, err := p.Pid()
+				if err != nil {
+					logrus.WithField("error", err).Error("get process pid")
+				}
+				oldProc := p.Spec()
+				procs = append(procs, &types.Process{
+					Pid:      uint32(pid),
+					Terminal: oldProc.Terminal,
+					Args:     oldProc.Args,
+					Env:      oldProc.Env,
+					Cwd:      oldProc.Cwd,
+					User: &types.User{
+						Uid:            oldProc.User.UID,
+						Gid:            oldProc.User.GID,
+						AdditionalGids: oldProc.User.AdditionalGids,
+					},
+				})
+			}
+			state.Containers = append(state.Containers, &types.Container{
+				Id:         c.ID(),
+				BundlePath: c.Path(),
+				Processes:  procs,
+				Status:     string(c.State().Status),
 			})
 		}
-		state.Containers = append(state.Containers, &types.Container{
-			Id:         c.ID(),
-			BundlePath: c.Path(),
-			Processes:  procs,
-			Status:     string(c.State().Status),
-		})
-	}
+	*/
 	return state, nil
 }
 
