@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 
 	"github.com/Sirupsen/logrus"
@@ -55,12 +57,6 @@ func main() {
 	if len(os.Args) < 2 {
 		logrus.Fatal("shim: no arguments provided")
 	}
-	log, err := os.Create(filepath.Join(os.Args[1], "log"))
-	if err != nil {
-		logrus.Fatal("shim: create log file")
-	}
-	defer log.Close()
-	logrus.SetOutput(log)
 	// start handling signals as soon as possible so that things are properly reaped
 	// or if runc exits before we hit the handler
 	signals := make(chan os.Signal, bufferSize)
@@ -99,6 +95,7 @@ func main() {
 				if e.Pid == runcPid {
 					exitShim = true
 					logrus.WithFields(logrus.Fields{"pid": e.Pid, "status": e.Status}).Info("shim: runc exited")
+
 					if err := writeInt(filepath.Join(os.Args[1], "exitStatus"), e.Status); err != nil {
 						logrus.WithFields(logrus.Fields{"error": err, "status": e.Status}).Error("shim: write exit status")
 					}
@@ -110,26 +107,37 @@ func main() {
 			if err := std.Close(); err != nil {
 				logrus.WithField("error", err).Error("shim: close stdio")
 			}
+			if err := deleteContainer(os.Args[2]); err != nil {
+				logrus.WithField("error", err).Error("shim: delete runc state")
+			}
 			return
 		}
 	}
 }
 
-// startRunc starts runc and returns RUNC's pid
+// startRunc starts runc detached and returns the container's pid
 func startRunc(s *stdio, id string) (int, error) {
-	cmd := exec.Command("runc", "--id", id, "start", "--console", s.console)
-	cmd.Stdin = s.stdin
-	cmd.Stdout = s.stdout
-	cmd.Stderr = s.stderr
+	cmd := exec.Command("runc", "--id", id, "start", "-d", "--console", s.console)
+	buf := bytes.NewBuffer(nil)
+	cmd.Stdout = buf
+	cmd.ExtraFiles = []*os.File{
+		s.stdin,
+		s.stdout,
+		s.stderr,
+	}
 	// set the parent death signal to SIGKILL so that if the shim dies the container
 	// process also dies
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Pdeathsig: syscall.SIGKILL,
 	}
-	if err := cmd.Start(); err != nil {
+	if err := cmd.Run(); err != nil {
 		return -1, err
 	}
-	return cmd.Process.Pid, nil
+	return strconv.Atoi(buf.String())
+}
+
+func deleteContainer(id string) error {
+	return exec.Command("runc", "--id", id, "delete").Run()
 }
 
 // openContainerSTDIO opens the pre-created fifo's for use with the container
