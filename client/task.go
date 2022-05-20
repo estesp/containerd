@@ -21,11 +21,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path"
+	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"syscall"
 	"time"
 
+	crmetadata "github.com/checkpoint-restore/checkpointctl/lib"
 	"github.com/containerd/containerd/v2/api/services/tasks/v1"
 	"github.com/containerd/containerd/v2/api/types"
 	"github.com/containerd/containerd/v2/core/content"
@@ -116,6 +120,10 @@ type CheckpointTaskInfo struct {
 	ParentCheckpoint digest.Digest
 	// Options hold runtime specific settings for checkpointing a task
 	Options interface{}
+	// ExportToArchive true creates a local checkpoint archive
+	ExportToArchive bool
+	// ContainerConfig needed for restore from archive
+	ContainerConfig string
 
 	runtime string
 }
@@ -457,10 +465,13 @@ func (t *task) Checkpoint(ctx context.Context, opts ...CheckpointTaskOpts) (Imag
 			return nil, err
 		}
 	}
+
 	// set a default name
 	if i.Name == "" {
 		i.Name = fmt.Sprintf(checkpointNameFormat, t.id, time.Now().Format(checkpointDateFormat))
 	}
+	request.Location = i.Name
+	request.ExportToArchive = i.ExportToArchive
 	request.ParentCheckpoint = i.ParentCheckpoint.String()
 	if i.Options != nil {
 		o, err := protobuf.MarshalAnyToProto(i.Options)
@@ -481,6 +492,46 @@ func (t *task) Checkpoint(ctx context.Context, opts ...CheckpointTaskOpts) (Imag
 			return nil, err
 		}
 		defer t.Resume(ctx)
+	}
+
+	if request.ExportToArchive {
+		// For the checkpoint archive we need some additional
+		// metadata for restore. Instead of passing it through
+		// gRPC we just create the corresponding file here.
+		ok, checkpointPath := getCheckpointImagePath(cr.Runtime.Name, i.Options)
+		if !ok {
+			return nil, errors.New("checkpoint request is missing a valid checkpoint path")
+		}
+		configDump := filepath.Join(
+			// The checkpoint path points to the destination of the CRIU
+			// image files ".../checkpoint". The metadata is placed in the
+			// corresponding parent directory.
+			path.Dir(checkpointPath),
+			crmetadata.ConfigDumpFile,
+		)
+
+		if err := os.WriteFile(
+			configDump,
+			[]byte(i.ContainerConfig),
+			0o600,
+		); err != nil {
+			return nil, err
+		}
+		defer os.RemoveAll(configDump)
+
+		rootfsDiff := filepath.Join(
+			path.Dir(checkpointPath),
+			crmetadata.RootFsDiffTar,
+		)
+		if err := t.checkpointRWSnapshotToFile(
+			ctx,
+			cr.Snapshotter,
+			cr.SnapshotKey,
+			rootfsDiff,
+		); err != nil {
+			return nil, err
+		}
+		defer os.RemoveAll(rootfsDiff)
 	}
 
 	index := v1.Index{
@@ -632,6 +683,43 @@ func (t *task) checkpointTask(ctx context.Context, index *v1.Index, request *tas
 	return nil
 }
 
+func (t *task) checkpointRWSnapshotToFile(
+	ctx context.Context,
+	snapshotterName, id, dest string,
+) error {
+	opts := []diff.Opt{
+		diff.WithReference(fmt.Sprintf("checkpoint-rw-%s", id)),
+		diff.WithMediaType(v1.MediaTypeImageLayer),
+	}
+	rw, err := rootfs.CreateDiff(
+		ctx,
+		id,
+		t.client.SnapshotService(snapshotterName),
+		t.client.DiffService(),
+		opts...,
+	)
+	if err != nil {
+		return err
+	}
+
+	ra, err := t.client.ContentStore().ReaderAt(ctx, rw)
+	if err != nil {
+		return err
+	}
+	defer ra.Close()
+	f, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.Copy(f, content.NewReader(ra))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (t *task) checkpointRWSnapshot(ctx context.Context, index *v1.Index, snapshotterName string, id string) error {
 	opts := []diff.Opt{
 		diff.WithReference(fmt.Sprintf("checkpoint-rw-%s", id)),
@@ -683,17 +771,26 @@ func writeContent(ctx context.Context, store content.Ingester, mediaType, ref st
 	}, nil
 }
 
-// isCheckpointPathExist only suitable for runc runtime now
-func isCheckpointPathExist(runtime string, v interface{}) bool {
+func getCheckpointImagePath(runtime string, v interface{}) (bool, string) {
 	if v == nil {
-		return false
+		return false, ""
 	}
 
 	switch runtime {
 	case plugins.RuntimeRuncV2:
-		if opts, ok := v.(*options.CheckpointOptions); ok && opts.ImagePath != "" {
-			return true
-		}
+		opts, ok := v.(*options.CheckpointOptions)
+		return ok, opts.ImagePath
+	}
+
+	return false, ""
+}
+
+// isCheckpointPathExist only suitable for runc runtime now
+func isCheckpointPathExist(runtime string, v interface{}) bool {
+	ok, imagePath := getCheckpointImagePath(runtime, v)
+
+	if ok && imagePath != "" {
+		return true
 	}
 
 	return false

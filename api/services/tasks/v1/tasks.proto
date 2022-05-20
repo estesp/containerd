@@ -196,6 +196,8 @@ message CheckpointTaskRequest {
 	string container_id = 1;
 	string parent_checkpoint = 2;
 	google.protobuf.Any options = 3;
+	bool export_to_archive = 4;
+	string location = 5;
 }
 
 message CheckpointTaskResponse {
