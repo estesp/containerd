@@ -6822,20 +6822,6 @@ file {
       type_name: ".google.protobuf.Any"
       json_name: "options"
     }
-    field {
-      name: "export_to_archive"
-      number: 4
-      label: LABEL_OPTIONAL
-      type: TYPE_BOOL
-      json_name: "exportToArchive"
-    }
-    field {
-      name: "location"
-      number: 5
-      label: LABEL_OPTIONAL
-      type: TYPE_STRING
-      json_name: "location"
-    }
   }
   message_type {
     name: "CheckpointTaskResponse"
